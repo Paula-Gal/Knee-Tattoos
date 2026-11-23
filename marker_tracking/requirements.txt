@@ -1,0 +1,4 @@
+# Marker tracking only (no torch / SKEL). Tested with Python 3.12
+numpy==1.26.4
+opencv-python-headless==4.11.0.86  # last release that accepts numpy 1.26
+pytest
