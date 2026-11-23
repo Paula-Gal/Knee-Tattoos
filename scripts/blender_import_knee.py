@@ -111,6 +111,15 @@ def add_camera_and_lights(scene, points, mirror=1):
     camera.location = center + np.array([mirror * 2.6 * size, 0, 0])
     scene.collection.objects.link(camera)
     scene.camera = camera
+    # Intel RealSense D456 color-camera intrinsics at 1280 x 720 (without distortion).
+    fx, fy = 645.486328125, 644.7218017578125
+    ppx, ppy = 641.44970703125, 371.508178710938
+    camera.data.type = 'PERSP'
+    camera.data.sensor_fit = 'HORIZONTAL'
+    camera.data.sensor_width = 36
+    camera.data.lens = camera.data.sensor_width * fx / 1280
+    camera.data.shift_x = (640 - ppx) / 1280
+    camera.data.shift_y = (ppy - 360) * (fx / fy) / 1280
     aimed = [camera]
 
     for name, offset, power in [('Key', (2, -2, 2.5), 400), ('Fill', (2, 2, 0.5), 150), ('Back', (-2, 0, 2), 200)]:
@@ -129,8 +138,11 @@ def add_camera_and_lights(scene, points, mirror=1):
     background = scene.world.node_tree.nodes['Background']
     background.inputs['Color'].default_value = (0.9, 0.9, 0.92, 1.0)
     background.inputs['Strength'].default_value = 0.6
-    scene.render.resolution_x = 1080
-    scene.render.resolution_y = 1080
+    scene.render.resolution_x = 1280
+    scene.render.resolution_y = 720
+    scene.render.resolution_percentage = 100
+    scene.render.pixel_aspect_x = 1
+    scene.render.pixel_aspect_y = fx / fy
 
 
 # ---------------------------------------------------------------- 5. check
