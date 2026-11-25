@@ -18,6 +18,7 @@ d = np.load(args.npz)
 failed = []
 
 side = str(d['side']) if 'side' in d.files else 'right'  # files made before --side existed are right-leg
+LEG_BONES = {'right': [1, 2, 3, 4, 5], 'left': [6, 7, 8, 9, 10]}
 FEMUR, TIBIA = (1, 2) if side == 'right' else (6, 7)  # SKEL bone indices
 HIP, KNEE, ANKLE = FEMUR, TIBIA, TIBIA + 1  # joint index = index of the bone that starts there
 KNEE_PARAM = f'knee_angle_{side[0]}'
@@ -70,6 +71,20 @@ check(f'{KNEE_PARAM} column == knee_deg', np.allclose(np.degrees(d['poses'][:, k
 others = np.delete(d['poses'], k, axis=1)
 check('all other pose columns are 0', np.abs(others).max() == 0)
 
+# 5b. Pelvis-attached exports contain only the pelvis and selected leg.
+if 'region' in d.files:
+    region = str(d['region'])
+    expected_region = f'pelvis+{side}_leg'
+    check('region matches pelvis and selected side', d['region'].shape == () and region == expected_region,
+          f'{region}, expected {expected_region}')
+    allowed_labels = [0] + LEG_BONES[side]
+    skin_labels_ok = (np.isin(d['skin_label'], allowed_labels).all()
+                      and np.any(d['skin_label'] == 0))
+    bone_labels_ok = (np.isin(d['bone_label'], allowed_labels).all()
+                      and {0, *LEG_BONES[side]}.issubset(set(d['bone_label'].tolist())))
+    check('skin labels are pelvis or selected leg', skin_labels_ok)
+    check('bone labels contain pelvis and selected leg only', bone_labels_ok)
+
 # 6. Bone lengths stay constant
 J = d['joints']
 femur_len = np.linalg.norm(J[:, KNEE] - J[:, HIP], axis=1)
@@ -107,6 +122,7 @@ if args.recompute:
     import torch
 
     sys.path.insert(0, 'scripts')
+    from skel_mesh import dominant_bone, submesh
     from skel_setup import load_skel
 
     skel = load_skel(str(d['gender']))
@@ -116,6 +132,13 @@ if args.recompute:
     db = np.abs(out.skel_verts.numpy()[:, d['bone_vert_ids']] - d['bone_verts']).max()
     check('recomputed skin matches', ds < 1e-5, f'max diff {ds:.2e} m')
     check('recomputed bones match', db < 1e-5, f'max diff {db:.2e} m')
+    selected_bones = [0] + LEG_BONES[side] if 'region' in d.files else LEG_BONES[side]
+    skin_ids, skin_faces = submesh(skel.skin_f, dominant_bone(skel.skin_weights), selected_bones)
+    bone_ids, bone_faces = submesh(skel.skel_f, dominant_bone(skel.skel_weights_rigid), selected_bones)
+    check('recomputed skin selection matches', np.array_equal(skin_ids, d['skin_vert_ids'])
+          and np.array_equal(skin_faces, d['skin_faces']))
+    check('recomputed bone selection matches', np.array_equal(bone_ids, d['bone_vert_ids'])
+          and np.array_equal(bone_faces, d['bone_faces']))
 
 print(f'\n{args.npz}: gender={d["gender"]}, side={side}, {P} poses, units: {d["units"]}')
 print(f'coordinate system: {d["coordinate_system"]}')
