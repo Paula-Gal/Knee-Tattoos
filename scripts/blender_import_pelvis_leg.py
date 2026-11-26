@@ -65,8 +65,20 @@ def load_marker_geometry(path, source):
     labels = np.asarray(marker_data['marker_label'])
     sizes = np.asarray(marker_data['size_m'], dtype=np.float64)
     textures = np.asarray(marker_data['texture'])
+    raw_families = np.asarray(marker_data.get('family', np.full(marker_count, 'custom')))
+    raw_shapes = np.asarray(marker_data.get('shape', np.full(marker_count, 'texture_alpha')))
+    if raw_families.dtype.kind not in 'US' or raw_shapes.dtype.kind not in 'US':
+        raise ValueError('marker family and shape fields must contain strings')
+    families = raw_families.astype(str)
+    shapes = raw_shapes.astype(str)
     if labels.shape != (marker_count,) or sizes.shape != (marker_count,) or textures.shape != (marker_count,):
         raise ValueError('marker labels, sizes, and texture paths must match marker IDs')
+    if families.shape != (marker_count,) or shapes.shape != (marker_count,):
+        raise ValueError('marker families and shapes must match marker IDs')
+    if np.any(np.char.str_len(np.char.strip(families)) == 0):
+        raise ValueError('marker families must be non-empty strings')
+    if np.any(~np.isin(shapes, ('square', 'circle', 'texture_alpha'))):
+        raise ValueError('marker shapes must be square, circle, or texture_alpha')
     paper_codes = np.asarray(marker_data.get('paper_code', labels)).astype(str)
     site_regions = np.asarray(marker_data.get('site_region', np.full(marker_count, 'leg'))).astype(str)
     table_rows = np.asarray(marker_data.get('paper_table_row', np.zeros(marker_count, dtype=np.int32)))
@@ -105,6 +117,8 @@ def load_marker_geometry(path, source):
     if _scalar_text(marker_data, 'mesh_sha256') != mesh_fingerprint(source):
         raise ValueError('marker geometry mesh fingerprint does not match the pelvis-leg export')
     marker_data['marker_id'] = marker_ids.astype(np.int64)
+    marker_data['family'] = families
+    marker_data['shape'] = shapes
     marker_data['paper_code'] = paper_codes
     marker_data['site_region'] = site_regions
     marker_data['paper_table_row'] = table_rows.astype(np.int32)
@@ -113,8 +127,10 @@ def load_marker_geometry(path, source):
     return marker_data
 
 
-def marker_material(marker_id, texture_path):
-    """Build a UV-textured marker material from a supplied image."""
+def marker_material(marker_id, texture_path, shape='texture_alpha'):
+    """Build a textured marker material with an optional UV-space silhouette mask."""
+    if shape not in ('square', 'circle', 'texture_alpha'):
+        raise ValueError(f'unsupported marker shape for marker {marker_id}: {shape!r}')
     try:
         image = bpy.data.images.load(texture_path, check_existing=True)
     except RuntimeError as error:
@@ -126,8 +142,42 @@ def marker_material(marker_id, texture_path):
     image_node = nodes.new('ShaderNodeTexImage')
     image_node.image = image
     material.node_tree.links.new(image_node.outputs['Color'], shader.inputs['Base Color'])
-    if 'Alpha' in image_node.outputs and 'Alpha' in shader.inputs:
-        material.node_tree.links.new(image_node.outputs['Alpha'], shader.inputs['Alpha'])
+    alpha = image_node.outputs['Alpha']
+    if shape != 'texture_alpha':
+        links = material.node_tree.links
+        coordinates = nodes.new('ShaderNodeTexCoord')
+        separate = nodes.new('ShaderNodeSeparateXYZ')
+        links.new(coordinates.outputs['UV'], separate.inputs['Vector'])
+
+        def math_output(operation, first, second):
+            node = nodes.new('ShaderNodeMath')
+            node.operation = operation
+            for index, value in enumerate((first, second)):
+                if hasattr(value, 'node'):
+                    links.new(value, node.inputs[index])
+                else:
+                    node.inputs[index].default_value = value
+            return node.outputs[0]
+
+        if shape == 'circle':
+            delta_u = math_output('SUBTRACT', separate.outputs['X'], 0.5)
+            delta_v = math_output('SUBTRACT', separate.outputs['Y'], 0.5)
+            square_u = math_output('MULTIPLY', delta_u, delta_u)
+            square_v = math_output('MULTIPLY', delta_v, delta_v)
+            distance_squared = math_output('ADD', square_u, square_v)
+            silhouette = math_output('LESS_THAN', distance_squared, 0.250001)
+        else:
+            u_lower = math_output('GREATER_THAN', separate.outputs['X'], -0.000001)
+            u_upper = math_output('LESS_THAN', separate.outputs['X'], 1.000001)
+            v_lower = math_output('GREATER_THAN', separate.outputs['Y'], -0.000001)
+            v_upper = math_output('LESS_THAN', separate.outputs['Y'], 1.000001)
+            u_mask = math_output('MULTIPLY', u_lower, u_upper)
+            v_mask = math_output('MULTIPLY', v_lower, v_upper)
+            silhouette = math_output('MULTIPLY', u_mask, v_mask)
+        links.new(silhouette, shader.inputs['Alpha'])
+    else:
+        links = material.node_tree.links
+        links.new(alpha, shader.inputs['Alpha'])
     if hasattr(material, 'surface_render_method'):
         material.surface_render_method = 'DITHERED'
     material.diffuse_color = (1, 1, 1, 1)
@@ -135,7 +185,8 @@ def marker_material(marker_id, texture_path):
 
 
 def make_marker_mesh(marker_id, label, size_m, texture_path, vertices, grid_resolution,
-                     paper_code='', site_region='leg', paper_table_row=0):
+                     paper_code='', site_region='leg', paper_table_row=0,
+                     family='custom', shape='texture_alpha'):
     """Create a textured quad grid whose vertices follow one marker's pose arrays."""
     cells = grid_resolution - 1
     faces = np.asarray([
@@ -147,7 +198,7 @@ def make_marker_mesh(marker_id, label, size_m, texture_path, vertices, grid_reso
     ], dtype=np.int32)
     obj = make_animated_mesh(
         f'Marker_{marker_id:03d}', vertices.reshape(len(vertices), grid_resolution * grid_resolution, 3),
-        faces, [marker_material(marker_id, texture_path)],
+        faces, [marker_material(marker_id, texture_path, shape)],
     )
     uv_layer = obj.data.uv_layers.new(name='MarkerUV')
     for polygon in obj.data.polygons:
@@ -159,6 +210,8 @@ def make_marker_mesh(marker_id, label, size_m, texture_path, vertices, grid_reso
             uv_layer.data[loop_index].uv = uv
     obj['marker_id'] = int(marker_id)
     obj['label'] = str(label)
+    obj['family'] = str(family)
+    obj['shape'] = str(shape)
     obj['paper_code'] = str(paper_code)
     obj['site_region'] = str(site_region)
     obj['paper_table_row'] = int(paper_table_row)
@@ -181,6 +234,7 @@ def add_marker_meshes(marker_data):
             str(marker_data['texture'][marker_index]), grid_verts[:, marker_index], grid_resolution,
             marker_data['paper_code'][marker_index], marker_data['site_region'][marker_index],
             marker_data['paper_table_row'][marker_index],
+            marker_data['family'][marker_index], marker_data['shape'][marker_index],
         ))
     return marker_objects, grid_verts
 

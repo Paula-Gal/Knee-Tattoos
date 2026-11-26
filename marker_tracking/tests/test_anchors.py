@@ -28,8 +28,8 @@ def source_mesh(labels=None):
     }
 
 
-def marker(texture_path):
-    return {
+def marker(texture_path, **overrides):
+    value = {
         'id': 3,
         'label': 'test_patch',
         'size_m': 0.2,
@@ -37,6 +37,8 @@ def marker(texture_path):
         'texture': str(texture_path),
         'anchor': {'face': 0, 'bary': [0.5, 0.25, 0.25]},
     }
+    value.update(overrides)
+    return value
 
 
 class TestMarkerAnchors(unittest.TestCase):
@@ -45,7 +47,7 @@ class TestMarkerAnchors(unittest.TestCase):
             texture = Path(temporary_directory) / 'marker.png'
             texture.write_bytes(b'placeholder')
             source = source_mesh()
-            layout = create_layout(source, [marker(texture)])
+            layout = create_layout(source, [marker(texture, family='stag_hd11', shape='square')])
 
             geometry = make_marker_geometry(source, layout, grid_resolution=5, fit_tolerance_m=0.001)
 
@@ -55,6 +57,8 @@ class TestMarkerAnchors(unittest.TestCase):
         self.assertEqual(geometry['centre'].shape, (2, 1, 3))
         self.assertEqual(geometry['corners'].shape, (2, 1, 4, 3))
         self.assertEqual(geometry['normal'].shape, (2, 1, 3))
+        self.assertEqual(geometry['family'].tolist(), ['stag_hd11'])
+        self.assertEqual(geometry['shape'].tolist(), ['square'])
         self.assertTrue(np.isfinite(geometry['grid_verts']).all())
         np.testing.assert_allclose(geometry['centre'][0, 0], [0.5, 0.25, 0.0], atol=1e-7)
         np.testing.assert_allclose(geometry['centre'][1, 0], [0.5, 0.25, 0.05], atol=1e-7)

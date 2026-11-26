@@ -56,7 +56,11 @@ class TestMarkerLayout(unittest.TestCase):
             function(*args, **kwargs)
 
     def test_layout_round_trip_preserves_marker_and_source(self):
-        layout = create_layout(self.source, [marker(self.texture)], reference_pose=1)
+        layout = create_layout(
+            self.source,
+            [marker(self.texture, family='stag', shape='square')],
+            reference_pose=1,
+        )
         path = self.tmp_path / 'layout.json'
 
         save_layout(path, layout, source_npz=self.source)
@@ -66,6 +70,17 @@ class TestMarkerLayout(unittest.TestCase):
         self.assertEqual(loaded['schema_version'], 1)
         self.assertEqual(loaded['source']['reference_pose'], 1)
         self.assertEqual(loaded['source']['mesh_sha256'], mesh_fingerprint(self.source))
+        self.assertEqual(loaded['markers'][0]['family'], 'stag')
+        self.assertEqual(loaded['markers'][0]['shape'], 'square')
+
+    def test_layout_defaults_legacy_style_and_rejects_invalid_style_fields(self):
+        layout = create_layout(self.source, [marker(self.texture)])
+        self.assertEqual(layout['markers'][0]['family'], 'custom')
+        self.assertEqual(layout['markers'][0]['shape'], 'texture_alpha')
+        self.assert_layout_error('family', create_layout, self.source,
+                                 [marker(self.texture, family=' ')])
+        self.assert_layout_error('shape', create_layout, self.source,
+                                 [marker(self.texture, shape='triangle')])
 
     def test_rejects_malformed_barycentric_weights(self):
         for bad_bary in ([0.2, 0.2, 0.2], [-0.1, 0.5, 0.6], [0.5, float('nan'), 0.5]):

@@ -144,7 +144,7 @@ Test style configuration and marker geometry with the existing Python test suite
 
 # Delivery Steps
 
-### * Step 1: Add reusable per-site marker style presets to the MiKneeSoTA generator
+### ✓ Step 1: Add reusable per-site marker style presets to the MiKneeSoTA generator
 The four generated layouts keep the existing 17 approximate paper-site anchors and resolve an independently configurable family, shape, texture, and size for each site.
 
 - Add focused style-preset parsing and validation in `marker_tracking/styles.py`, with an editable example in `marker_tracking/presets/mikneesota_marker_styles.json`.
@@ -152,7 +152,7 @@ The four generated layouts keep the existing 17 approximate paper-site anchors a
 - Persist resolved family/shape/texture metadata in each layout and marker geometry NPZ; retain source fingerprints and relative texture path resolution.
 - Add tests proving styles round-trip, invalid presets fail clearly, and changing styles leaves marker IDs, site codes, and barycentric centers unchanged across all four models.
 
-###   Step 2: Render configured marker silhouettes and textures on the animated skin
+### ✓ Step 2: Render configured marker silhouettes and textures on the animated skin
 The Blender scene displays square, circular, and custom-alpha markers that follow the skin over the full animation and can be rendered as a video.
 
 - Update `scripts/blender_import_pelvis_leg.py` to apply per-marker UV-space shape masks and supplied textures, retain family/shape metadata on Blender objects, and preserve the no-marker scene path.

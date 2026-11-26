@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "family": "custom",
+    "shape": "circle",
+    "texture": "../../output/pelvis/mikneesota_marker_disc.png",
+    "size_m": 0.014,
+    "rotation_deg": 0
+  },
+  "sites": {
+    "LASI": {
+      "shape": "square",
+      "size_m": 0.018,
+      "rotation_deg": 15
+    },
+    "RPSI": {
+      "family": "custom",
+      "shape": "texture_alpha"
+    }
+  }
+}

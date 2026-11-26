@@ -9,6 +9,7 @@ import numpy as np
 
 from anchors import AnchorError, project_point_to_skin
 from layout import LEG_BONES, LayoutError, create_layout
+from styles import StylePresetError, resolve_site_style, style_preset_metadata
 
 MIKNEESOTA_MARKER_PAIRS = (
     {'row': 1, 'suffix': 'ASI', 'site_region': 'pelvis',
@@ -163,10 +164,10 @@ def _site_target(code, joints, joint_indices, pelvis_bounds):
     raise LayoutError(f'no anatomical proxy rule exists for paper marker {code!r}')
 
 
-def create_mikneesota_layout(source_npz, texture_path, reference_pose=0,
-                             marker_size_m=MARKER_DIAMETER_M,
+def create_mikneesota_layout(source_npz, texture_path=None, reference_pose=0,
+                             marker_size_m=None,
                              max_projection_distance_m=MAX_PROJECTION_DISTANCE_M,
-                             layout_path=None):
+                             layout_path=None, style_preset=None):
     """Create a 17-marker, one-leg-plus-pelvis layout from one matching export."""
     gender_value = np.asarray(source_npz.get('gender'))
     side_value = np.asarray(source_npz.get('side'))
@@ -176,8 +177,11 @@ def create_mikneesota_layout(source_npz, texture_path, reference_pose=0,
     side = str(side_value.item())
     if gender not in ('male', 'female') or side not in LEG_BONES:
         raise LayoutError(f'unsupported pelvis-leg source gender/side: {gender!r}/{side!r}')
-    if not math.isfinite(float(marker_size_m)) or float(marker_size_m) <= 0:
+    if marker_size_m is not None and (
+            not math.isfinite(float(marker_size_m)) or float(marker_size_m) <= 0):
         raise LayoutError('marker_size_m must be a positive finite number')
+    if style_preset is None and (not isinstance(texture_path, (str, os.PathLike)) or not os.fspath(texture_path)):
+        raise LayoutError('texture_path or a validated style_preset is required')
     if not math.isfinite(float(max_projection_distance_m)) or float(max_projection_distance_m) <= 0:
         raise LayoutError('max_projection_distance_m must be a positive finite number')
 
@@ -239,6 +243,21 @@ def create_mikneesota_layout(source_npz, texture_path, reference_pose=0,
             )
         left_right = 0 if code[0] == 'L' else 1
         marker_id = 2 * pair_index_by_suffix[suffix] + left_right
+        if style_preset is None:
+            style = {
+                'family': 'custom',
+                'shape': 'texture_alpha',
+                'texture': os.path.abspath(os.fspath(texture_path)),
+                'size_m': MARKER_DIAMETER_M if marker_size_m is None else float(marker_size_m),
+                'rotation_deg': 0.0,
+            }
+        else:
+            try:
+                style = resolve_site_style(style_preset, code)
+            except StylePresetError as error:
+                raise LayoutError(str(error)) from error
+            if marker_size_m is not None:
+                style['size_m'] = float(marker_size_m)
         markers.append({
             'id': marker_id,
             'label': code,
@@ -246,9 +265,11 @@ def create_mikneesota_layout(source_npz, texture_path, reference_pose=0,
             'paper_description': pair['description'],
             'paper_table_row': pair['row'],
             'site_region': site_region,
-            'size_m': float(marker_size_m),
-            'rotation_deg': 0.0,
-            'texture': os.path.abspath(os.fspath(texture_path)),
+            'family': style['family'],
+            'shape': style['shape'],
+            'size_m': style['size_m'],
+            'rotation_deg': style['rotation_deg'],
+            'texture': style['texture'],
             'anchor': {'face': int(face), 'bary': np.asarray(bary, dtype=np.float64).tolist()},
             'placement_method': PLACEMENT_METHOD,
             'proxy_target': target.tolist(),
@@ -261,11 +282,13 @@ def create_mikneesota_layout(source_npz, texture_path, reference_pose=0,
         'paper_marker_count': 30,
         'markers_in_this_model': len(markers),
         'table_rows': [pair['row'] for pair in MIKNEESOTA_MARKER_PAIRS],
-        'marker_diameter_m': float(marker_size_m),
+        'marker_sizes_m': {marker['paper_code']: marker['size_m'] for marker in markers},
         'placement_method': PLACEMENT_METHOD,
         'approximate': True,
         'approximation_note': APPROXIMATION_NOTE,
     }
+    if style_preset is not None:
+        metadata['style_preset'] = style_preset_metadata(style_preset)
     return create_layout(
         source_npz,
         markers,

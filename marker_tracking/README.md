@@ -21,7 +21,40 @@ The saved face index is local to `skin_faces`, with barycentric weights in that 
 
 The paper's Table 1 defines 30 retroreflective marker sites in 15 bilateral pairs; it does not specify their physical diameter. The generator uses a configurable 14 mm default. Each one-leg-plus-pelvis model receives 17 markers: bilateral LASI/RASI and LPSI/RPSI on pelvis-labeled skin, plus the 13 markers for its selected leg: THI, KNE, TIB, ANK, HEE, TOE, MFE, MTI, KNM, LTC, MTC, KNA, and MED. The hip joint centers (LFEP/RFEP) illustrated in Fig. 1 are not physical markers and are not added as decals.
 
-The paper gives anatomical descriptions and schematic views, not coordinates on these SKEL meshes. Therefore the generator places **provisional anatomical proxies** using the exported joints, pelvis bounds, and side-specific directions, then projects each target onto the nearest triangle in its permitted pelvis/leg region. These are not exact palpated clinical locations; inspect the layouts and adjust them in Blender if exact sites are required. The marker size is configurable, and the generated transparent disc texture is only a visualization, not a model of retroreflective optics.
+The paper gives anatomical descriptions and schematic views, not coordinates on these SKEL meshes. Therefore the generator places **provisional anatomical proxies** using the exported joints, pelvis bounds, and side-specific directions, then projects each target onto the nearest triangle in its permitted pelvis/leg region. These are not exact palpated clinical locations. MiKneeSoTA supplies rough placement references only; marker families and appearances are configured independently.
+
+### Configure marker styles
+
+Edit `marker_tracking/presets/mikneesota_marker_styles.json` or pass another JSON file with `--style-preset`. The preset is separate from the site-position rules and resolves defaults plus partial per-code overrides. A style can set `family` (descriptive metadata such as `aruco_4x4_50`, `stag_hd11`, or `custom`), `shape` (`square`, `circle`, or `texture_alpha`), `texture`, `size_m`, and `rotation_deg`. `size_m` is the square patch side length or the circle's diameter. The family label does not generate a pattern or add a detector; supply the actual image yourself.
+
+```json
+{
+  "schema_version": 1,
+  "defaults": {
+    "family": "stag_hd11",
+    "shape": "square",
+    "texture": "textures/stag_hd11.png",
+    "size_m": 0.04,
+    "rotation_deg": 0
+  },
+  "sites": {
+    "LASI": {
+      "family": "aruco_4x4_50",
+      "shape": "square",
+      "texture": "textures/aruco_4x4_50_17.png",
+      "size_m": 0.03,
+      "rotation_deg": 12
+    },
+    "RPSI": {
+      "family": "custom",
+      "shape": "texture_alpha",
+      "texture": "textures/round_custom.png"
+    }
+  }
+}
+```
+
+Texture paths may be absolute or relative to the preset JSON. Every referenced image must exist before generation. The bundled preset uses a neutral generated disc image under `output/pelvis/`; replace its style entries and image path with supplied patterns for real ArUco/STAG experiments. Style changes affect appearance and patch footprint only, not the paper-site center anchors.
 
 Ensure all four pelvis-leg NPZ exports exist, then run:
 
@@ -29,7 +62,7 @@ Ensure all four pelvis-leg NPZ exports exist, then run:
 python scripts/generate_mikneesota_markers.py
 ```
 
-This writes four source-bound layout files (`mikneesota_layout_<gender>_<side>.json`), four animated marker geometry files (`markers_mikneesota_<gender>_<side>.npz`), and `mikneesota_marker_disc.png` under `output/pelvis/`. Each geometry NPZ contains 17 stable marker IDs, center/corner/normal data, and a 9 × 9 barycentric grid for every exported pose. All grid samples are recomputed from the source skin triangles in each pose, so the patches follow the surface; the default fit tolerance is 10 mm to accommodate the curved heel proxy. Use `--marker-size-mm`, `--grid-resolution`, `--fit-tolerance-m`, `--max-projection-distance-m`, and `--force` to configure or regenerate the outputs.
+This writes four source-bound layout files (`mikneesota_layout_<gender>_<side>.json`), four animated marker geometry files (`markers_mikneesota_<gender>_<side>.npz`), and the bundled default disc image under `output/pelvis/`. Each geometry NPZ contains 17 stable marker IDs, resolved family/shape/texture/size/rotation fields, center/corner/normal data, and a 9 × 9 barycentric grid for every exported pose. All grid samples are recomputed from the source skin triangles in each pose, so the patches follow the surface; the default fit tolerance is 10 mm to accommodate the curved heel proxy. Use `--style-preset` to select a reusable appearance file, `--marker-size-mm` to override all preset sizes, `--grid-resolution`, `--fit-tolerance-m`, `--max-projection-distance-m`, and `--force` to configure or regenerate the outputs.
 
 The generated marker NPZ is then passed to the existing Blender importer as in the preview section below. The per-model marker IDs are stable across genders and sides; `paper_code` and `paper_table_row` retain the paper's anatomical code and Table 1 row.
 
@@ -58,7 +91,7 @@ blender -b output/pelvis/pelvis_leg_male_right_markers.blend \
   --output-dir output/pelvis/takes/shin_experiment
 ```
 
-The marker meshes use the same absolute shape keys and frame-to-pose mapping as `Skin`, with only a 0.1 mm display offset; ground truth remains on the true surface. Render/export requires the exact experimental timeline (do not build with `--visual`). Each take contains `rgb/frame_0000.png` onward, `camera.json` with intrinsics/extrinsics and source metadata, and `ground_truth.csv` with one row per frame/marker. Its common `frame`, `time_s`, `marker_id`, `u_px`, `v_px`, `x_m`, `y_m`, and `z_m` fields follow the tracking table's naming and camera coordinate convention; the remaining columns contain four camera-space corners and the camera-space normal. `marker_tracking.table` remains the observation CSV contract, including its `detected` and `valid` flags; this geometric ground-truth file does not fabricate detector observations.
+The marker meshes use the same absolute shape keys and frame-to-pose mapping as `Skin`, with only a 0.1 mm display offset; ground truth remains on the true surface. The Blender material applies UV-space square/circle masks independently of the input image alpha, or uses the supplied texture alpha for `texture_alpha`; the Blender objects retain marker family and shape metadata. Render/export requires the exact experimental timeline (do not build with `--visual`). Each take contains `rgb/frame_0000.png` onward, `camera.json` with intrinsics/extrinsics and source metadata, and `ground_truth.csv` with one row per frame/marker. Its common `frame`, `time_s`, `marker_id`, `u_px`, `v_px`, `x_m`, `y_m`, and `z_m` fields follow the tracking table's naming and camera coordinate convention; the remaining columns contain four camera-space corners and the camera-space normal. `marker_tracking.table` remains the observation CSV contract, including its `detected` and `valid` flags; this geometric ground-truth file does not fabricate detector observations.
 
 ## Project layout and tests
 

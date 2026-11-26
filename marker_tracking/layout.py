@@ -202,6 +202,13 @@ def validate_layout(layout, source_npz=None, layout_path=None, check_textures=Tr
         if size <= 0:
             raise LayoutError(f'{prefix}.size_m must be positive')
         rotation = _finite_number(marker.get('rotation_deg'), f'{prefix}.rotation_deg')
+        family = marker.get('family', 'custom')
+        if not isinstance(family, str) or not family.strip():
+            raise LayoutError(f'{prefix}.family must be a non-empty string')
+        family = family.strip()
+        shape = marker.get('shape', 'texture_alpha')
+        if shape not in ('square', 'circle', 'texture_alpha'):
+            raise LayoutError(f'{prefix}.shape must be square, circle, or texture_alpha')
         texture = marker.get('texture')
         if not isinstance(texture, str) or not texture.strip() or '\0' in texture:
             raise LayoutError(f'{prefix}.texture must be a non-empty file path')
@@ -264,6 +271,8 @@ def validate_layout(layout, source_npz=None, layout_path=None, check_textures=Tr
         normalized_marker = {
             'id': marker_id,
             'label': label.strip(),
+            'family': family,
+            'shape': shape,
             'size_m': size,
             'rotation_deg': rotation,
             'texture': texture,

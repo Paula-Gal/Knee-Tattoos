@@ -324,6 +324,8 @@ def make_marker_geometry(source_npz, layout, grid_resolution=DEFAULT_GRID_RESOLU
     return {
         'marker_id': np.asarray([marker['id'] for marker in markers], dtype=np.int64),
         'marker_label': np.asarray([marker['label'] for marker in markers]),
+        'family': np.asarray([marker['family'] for marker in markers]),
+        'shape': np.asarray([marker['shape'] for marker in markers]),
         'paper_code': np.asarray([marker.get('paper_code', '') for marker in markers]),
         'paper_description': np.asarray([marker.get('paper_description', '') for marker in markers]),
         'paper_table_row': np.asarray([marker.get('paper_table_row', 0) for marker in markers], dtype=np.int32),
