@@ -99,6 +99,33 @@ The following limitations are based on the SKEL model described by [Keller et al
 - **Limited soft-tissue realism.** The skin mesh deforms with the skeletal pose using linear blend skinning and pose-dependent corrections. However, muscles, fat, and skin sliding relative to the bones are not explicitly simulated using a physical soft-tissue model.
 - **Skin deformation artefacts.** SKEL inherits pose-dependent deformation corrections from SMPL, which the authors acknowledge can produce artefacts in extreme poses (Sec. 5.2).
 
+## Pelvis (static)
+
+The static pelvis case exports the SKEL pelvis bone (bone 0) and the skin vertices dominated by that bone. From the repository root, run:
+
+```bash
+python run_pelvis.py male       # or female
+python run_pelvis.py all        # both genders
+python run_pelvis.py all --force  # overwrite existing Blender scenes
+```
+
+The runner exports and checks `output/pelvis/pelvis_<gender>.npz`, then builds `output/pelvis/pelvis_<gender>.blend`. The scene contains static `Skin` and `Bones` objects, a front-facing camera, and lights. This remains the pelvis-only reference-pose export.
+
+## Animated pelvis + leg
+
+To keep the pelvis attached to a bending leg, run the separate pelvis-leg pipeline:
+
+```bash
+python run_pelvis_leg.py all                 # male/female, right/left
+python run_pelvis_leg.py male left            # one selected case
+python run_pelvis_leg.py all --force          # overwrite existing Blender scenes
+python run_pelvis_leg.py all --visual         # smooth playback for viewing
+```
+
+Each case selects the pelvis and one complete leg from SKEL and uses the same 46-pose, 0–90° knee-flexion motion as `run_knee_bend.py`. It writes `output/pelvis/pelvis_leg_anim_<gender>_<side>.npz` and `output/pelvis/pelvis_leg_<gender>_<side>.blend`; both `Skin` and `Bones` are animated with shape keys. By default, frame `n` is SKEL pose `n`, just like the normal knee scene. The original static pelvis and knee-bend outputs remain separate and unchanged.
+
+Skin markers are deferred. The planned approach is to anchor marker surface points barycentrically to skin triangles and recompute their 3D positions from the deformed skin vertices, preserving exact ground truth without reading positions back from Blender. ArUco, STag, and CCTag support and experiment sweeps are not implemented yet.
+
 ## References
 
 - Keller, M., Werling, K., Shin, S., Delp, S., Pujades, S., Liu, C. K., & Black, M. J. (2023). From Skin to Skeleton: Towards Biomechanically Accurate 3D Digital Humans. *ACM Transactions on Graphics*, 42(6), Article 553. https://doi.org/10.1145/3618381. Code: https://github.com/MarilynKeller/SKEL

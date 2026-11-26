@@ -12,6 +12,9 @@ import bpy
 import numpy as np
 from bpy_extras import anim_utils
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from blender_common import add_camera_and_lights, make_material, to_blender
+
 LEG = {'right': (1, 2), 'left': (6, 7)}  # SKEL bone labels (femur, tibia) of each leg
 
 
@@ -27,24 +30,7 @@ def read_arguments():
     return parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
 
 
-def to_blender(v):
-    """SKEL y-up -> Blender z-up."""
-    return np.stack([v[..., 0], -v[..., 2], v[..., 1]], axis=-1)
-
-
 # ---------------------------------------------------------------- 2. meshes
-
-def make_material(name, color, alpha=1.0):
-    mat = bpy.data.materials.new(name)
-    mat.use_nodes = True
-    bsdf = mat.node_tree.nodes['Principled BSDF']
-    bsdf.inputs['Base Color'].default_value = color + (1.0,)
-    bsdf.inputs['Alpha'].default_value = alpha
-    if alpha < 1.0:
-        mat.surface_render_method = 'BLENDED'  # needed for transparency
-    mat.diffuse_color = color + (alpha,)  # colour in the viewport
-    return mat
-
 
 def make_animated_mesh(name, verts, faces, materials):
     """Mesh with one shape key per pose."""
@@ -94,43 +80,6 @@ def animate(obj, keyframes, interpolation):
     for fcurve in channels.fcurves:
         for point in fcurve.keyframe_points:
             point.interpolation = interpolation
-
-
-# ---------------------------------------------------------------- 4. camera and lights
-
-def add_camera_and_lights(scene, points, mirror=1):
-    """Camera and three lights aimed at the leg. mirror=-1 flips them for the left leg."""
-    center = (points.min(axis=0) + points.max(axis=0)) / 2
-    size = (points.max(axis=0) - points.min(axis=0)).max()
-
-    target = bpy.data.objects.new('Target', None)
-    target.location = center
-    scene.collection.objects.link(target)
-
-    camera = bpy.data.objects.new('Camera', bpy.data.cameras.new('Camera'))
-    camera.location = center + np.array([mirror * 2.6 * size, 0, 0])
-    scene.collection.objects.link(camera)
-    scene.camera = camera
-    aimed = [camera]
-
-    for name, offset, power in [('Key', (2, -2, 2.5), 400), ('Fill', (2, 2, 0.5), 150), ('Back', (-2, 0, 2), 200)]:
-        light = bpy.data.objects.new(name, bpy.data.lights.new(name, 'AREA'))
-        light.data.energy = power
-        light.data.size = 1.5
-        light.location = center + np.array(offset) * np.array([mirror, 1, 1])
-        scene.collection.objects.link(light)
-        aimed.append(light)
-
-    for obj in aimed:
-        obj.constraints.new('TRACK_TO').target = target
-
-    scene.world = bpy.data.worlds.new('World')
-    scene.world.use_nodes = True
-    background = scene.world.node_tree.nodes['Background']
-    background.inputs['Color'].default_value = (0.9, 0.9, 0.92, 1.0)
-    background.inputs['Strength'].default_value = 0.6
-    scene.render.resolution_x = 1080
-    scene.render.resolution_y = 1080
 
 
 # ---------------------------------------------------------------- 5. check
@@ -196,4 +145,5 @@ def main():
     print(f'saved {out_path}, frames {scene.frame_start}-{scene.frame_end}')
 
 
-main()
+if __name__ == '__main__':
+    main()
