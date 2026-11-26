@@ -3,5 +3,8 @@ torch==2.15.0
 numpy==1.26.4
 scipy==1.17.1
 trimesh==5.2.1
+# ArUco texture generation and the project test suite
+opencv-contrib-python==4.11.0.86
+pytest==9.2.0
 # SKEL model loader, pinned to a known-good commit
 skel @ git+https://github.com/MarilynKeller/SKEL.git@c32cf16581295bff19399379efe5b776d707cd95

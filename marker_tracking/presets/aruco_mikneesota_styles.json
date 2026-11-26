@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "family": "aruco_4x4_50",
+    "shape": "square",
+    "texture": "textures/aruco_4x4_50_00.png",
+    "size_m": 0.025,
+    "rotation_deg": 0
+  },
+  "sites": {
+    "LASI": {"texture": "textures/aruco_4x4_50_00.png"},
+    "RASI": {"texture": "textures/aruco_4x4_50_01.png"},
+    "LPSI": {"texture": "textures/aruco_4x4_50_02.png"},
+    "RPSI": {"texture": "textures/aruco_4x4_50_03.png"},
+    "LTHI": {"texture": "textures/aruco_4x4_50_04.png"},
+    "RTHI": {"texture": "textures/aruco_4x4_50_05.png"},
+    "LKNE": {"texture": "textures/aruco_4x4_50_06.png"},
+    "RKNE": {"texture": "textures/aruco_4x4_50_07.png"},
+    "LTIB": {"texture": "textures/aruco_4x4_50_08.png"},
+    "RTIB": {"texture": "textures/aruco_4x4_50_09.png"},
+    "LANK": {"texture": "textures/aruco_4x4_50_10.png"},
+    "RANK": {"texture": "textures/aruco_4x4_50_11.png"},
+    "LHEE": {"texture": "textures/aruco_4x4_50_12.png", "size_m": 0.014},
+    "RHEE": {"texture": "textures/aruco_4x4_50_13.png", "size_m": 0.014},
+    "LTOE": {"texture": "textures/aruco_4x4_50_14.png"},
+    "RTOE": {"texture": "textures/aruco_4x4_50_15.png"},
+    "LMED": {"texture": "textures/aruco_4x4_50_16.png"},
+    "RMED": {"texture": "textures/aruco_4x4_50_17.png"},
+    "LMFE": {"texture": "textures/aruco_4x4_50_18.png"},
+    "RMFE": {"texture": "textures/aruco_4x4_50_19.png"},
+    "LMTI": {"texture": "textures/aruco_4x4_50_20.png"},
+    "RMTI": {"texture": "textures/aruco_4x4_50_21.png"},
+    "LKNM": {"texture": "textures/aruco_4x4_50_22.png"},
+    "RKNM": {"texture": "textures/aruco_4x4_50_23.png"},
+    "LLTC": {"texture": "textures/aruco_4x4_50_24.png"},
+    "RLTC": {"texture": "textures/aruco_4x4_50_25.png"},
+    "LMTC": {"texture": "textures/aruco_4x4_50_26.png"},
+    "RMTC": {"texture": "textures/aruco_4x4_50_27.png"},
+    "LKNA": {"texture": "textures/aruco_4x4_50_28.png"},
+    "RKNA": {"texture": "textures/aruco_4x4_50_29.png"}
+  }
+}
