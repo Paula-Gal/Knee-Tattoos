@@ -25,7 +25,7 @@ The paper gives anatomical descriptions and schematic views, not coordinates on 
 
 ### Configure marker styles
 
-Edit `marker_tracking/presets/mikneesota_marker_styles.json` or pass another JSON file with `--style-preset`. The preset is separate from the site-position rules and resolves defaults plus partial per-code overrides. A style can set `family` (descriptive metadata such as `aruco_4x4_50`, `stag_hd11`, or `custom`), `shape` (`square`, `circle`, or `texture_alpha`), `texture`, `size_m`, and `rotation_deg`. `size_m` is the square patch side length or the circle's diameter. The family label does not generate a pattern or add a detector; supply the actual image yourself.
+Edit `marker_tracking/presets/mikneesota_marker_styles.json` or pass another JSON file with `--style-preset`. The preset is separate from the site-position rules and resolves defaults plus partial per-code overrides. A style can set `family` (descriptive metadata such as `aruco_4x4_50`, `stag_hd11`, or `custom`), `shape` (`square`, `circle`, or `texture_alpha`), `texture`, `size_m`, and `rotation_deg`. `size_m` is the square patch side length or the circle's diameter. The family label alone does not generate a pattern or add a detector; the optional ArUco setup below generates ArUco images, while other families use supplied images.
 
 ```json
 {
@@ -54,7 +54,34 @@ Edit `marker_tracking/presets/mikneesota_marker_styles.json` or pass another JSO
 }
 ```
 
-Texture paths may be absolute or relative to the preset JSON. Every referenced image must exist before generation. The bundled preset uses a neutral generated disc image under `output/pelvis/`; replace its style entries and image path with supplied patterns for real ArUco/STAG experiments. Style changes affect appearance and patch footprint only, not the paper-site center anchors.
+Texture paths may be absolute or relative to the preset JSON. Every referenced image must exist before generation. The general bundled preset uses a neutral generated disc image under `output/pelvis/`; style changes affect appearance and patch footprint only, not the paper-site center anchors.
+
+### Generate and render ArUco markers
+
+The repository includes an optional OpenCV generator and `aruco_mikneesota_styles.json` preset. It generates 30 distinct `DICT_4X4_50` patterns (one for each possible left/right paper code); each one-leg-plus-pelvis model uses 17 of them. The preset uses 25 mm patches by default and 14 mm for the two heel sites because larger heel patches fail the surface-fit checks. These dimensions are configurable examples, not sizes specified by the paper.
+
+From the repository root, generate the pattern images and all four source-bound geometries:
+
+```powershell
+python scripts\generate_aruco_textures.py
+python scripts\generate_mikneesota_markers.py `
+  --style-preset marker_tracking\presets\aruco_mikneesota_styles.json `
+  --output-dir output\pelvis\aruco
+```
+
+The first command writes images under `marker_tracking\presets\textures`; use `--force` to replace existing patterns. For example, build and render the male-right marker scene (replace gender/side in the paths for another model):
+
+```powershell
+blender -b --python scripts\blender_import_pelvis_leg.py -- `
+  output\pelvis\pelvis_leg_anim_male_right.npz `
+  output\pelvis\aruco\pelvis_leg_male_right_aruco.blend `
+  --marker-geometry output\pelvis\aruco\markers_mikneesota_male_right.npz
+blender -b output\pelvis\aruco\pelvis_leg_male_right_aruco.blend `
+  --python marker_tracking\blender\export_take.py -- `
+  --output-dir output\pelvis\aruco\takes\male_right
+```
+
+Open `output\pelvis\aruco\pelvis_leg_male_right_aruco.blend` and use Material Preview; zoom into the leg to inspect the square patterns. At the full-body camera framing the markers are small, as expected for skin patches. The take command writes 46 rendered PNG frames, `camera.json`, and geometric `ground_truth.csv`; it does not encode an MP4.
 
 Ensure all four pelvis-leg NPZ exports exist, then run:
 
@@ -98,15 +125,16 @@ The marker meshes use the same absolute shape keys and frame-to-pose mapping as 
 - `layout.py` and `anchors.py`: versioned layouts, mesh provenance, patch fitting, and per-pose barycentric evaluation.
 - `paper_layout.py`: MiKneeSoTA table definitions and approximate, region-constrained surface proxy placement.
 - `scripts/generate_mikneesota_markers.py`: creates all four paper-preset layouts and animated geometry files.
+- `scripts/generate_aruco_textures.py` and `presets/aruco_mikneesota_styles.json`: generate and assign the optional distinct ArUco patterns.
 - `blender/place_markers.py`: interactive surface picker and marker preview.
 - `blender/export_take.py`: rendered frames, camera metadata, and camera-space geometry ground truth.
 - `marker_tracking/`: tracking pipeline modules (`io`, `detect`, `lift`, `table`, `evaluate`, `run`).
 - `tests/`: synthetic layout/geometry and ground-truth checks, plus tracking table tests.
 
-From the project root, install `pytest` if needed and run all marker-tracking tests:
+From the project root, install project and test dependencies and run all marker-tracking tests:
 
 
 ```powershell
-python -m pip install pytest
+python -m pip install -r requirements.txt
 python -m pytest marker_tracking\tests
 ```

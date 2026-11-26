@@ -13,3 +13,6 @@ __pycache__/
 # Editor / OS
 .idea/
 .DS_Store
+
+# Junie plans and local agent configuration
+.junie/

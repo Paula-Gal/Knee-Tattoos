@@ -124,7 +124,47 @@ python run_pelvis_leg.py all --visual         # smooth playback for viewing
 
 Each case selects the pelvis and one complete leg from SKEL and uses the same 46-pose, 0–90° knee-flexion motion as `run_knee_bend.py`. It writes `output/pelvis/pelvis_leg_anim_<gender>_<side>.npz` and `output/pelvis/pelvis_leg_<gender>_<side>.blend`; both `Skin` and `Bones` are animated with shape keys. By default, frame `n` is SKEL pose `n`, just like the normal knee scene. The original static pelvis and knee-bend outputs remain separate and unchanged.
 
-Skin markers are deferred. The planned approach is to anchor marker surface points barycentrically to skin triangles and recompute their 3D positions from the deformed skin vertices, preserving exact ground truth without reading positions back from Blender. ArUco, STag, and CCTag support and experiment sweeps are not implemented yet.
+## Generate and render skin markers
+
+The marker workflow automatically places 17 MiKneeSoTA Table 1 site proxies on each SKEL pelvis-plus-one-leg mesh (four pelvis sites and 13 sites for the selected leg); no Blender picking is required. The paper describes anatomical locations rather than coordinates on these meshes, so the generated anchors are approximations, not exact clinical placements. Marker appearance is independent of the sites: a style preset can assign a texture family, shape, size, and rotation to each site. The patches conform to the animated skin and their positions are exported as geometric ground truth.
+
+From the repository root, first generate the four animated pelvis-leg source exports (requires the SKEL models and Python dependencies from [Setup](#setup)):
+
+```powershell
+python run_pelvis_leg.py all
+```
+
+For the bundled placeholder styles, generate the four layouts and marker geometries with:
+
+```powershell
+python scripts\generate_mikneesota_markers.py
+```
+
+To use distinct square ArUco patterns instead, generate their PNG files and use the ArUco preset:
+
+```powershell
+python scripts\generate_aruco_textures.py
+python scripts\generate_mikneesota_markers.py `
+  --style-preset marker_tracking\presets\aruco_mikneesota_styles.json `
+  --output-dir output\pelvis\aruco
+```
+
+The texture generator writes 30 `DICT_4X4_50` images under `marker_tracking\presets\textures`; those generated PNGs need not be committed because the script recreates them. The style preset maps the site codes to the images. To use STAG or other patterns, provide the image files and a style JSON of your own. See [`marker_tracking/README.md`](marker_tracking/README.md#configure-marker-styles) for the preset fields and shape options. Do not generate into the same output directory twice unless you pass `--force` to replace the existing files.
+
+To build a separate markerized Blender scene and render the male-right ArUco example (set `$blender` to the Blender executable or its full path):
+
+```powershell
+$blender = 'blender'
+& $blender '-b' '--python' 'scripts\blender_import_pelvis_leg.py' '--' `
+  'output\pelvis\pelvis_leg_anim_male_right.npz' `
+  'output\pelvis\aruco\pelvis_leg_male_right_aruco.blend' `
+  '--marker-geometry' 'output\pelvis\aruco\markers_mikneesota_male_right.npz'
+& $blender '-b' 'output\pelvis\aruco\pelvis_leg_male_right_aruco.blend' `
+  '--python' 'marker_tracking\blender\export_take.py' '--' `
+  '--output-dir' 'output\pelvis\aruco\takes\male_right'
+```
+
+Replace `male_right` with `male_left`, `female_right`, or `female_left` to build and render another model. Open the resulting `.blend` in Blender and use Material Preview to inspect the markers; zoom in because they are small at the full-body camera framing. Each take contains 46 rendered PNG frames, `camera.json`, and `ground_truth.csv`; it does not create an MP4. The regular `run_pelvis_leg.py` scene remains marker-free. See [`marker_tracking/README.md`](marker_tracking/README.md) for attachment details, geometry generation options, and the complete rendering workflow.
 
 ## References
 
