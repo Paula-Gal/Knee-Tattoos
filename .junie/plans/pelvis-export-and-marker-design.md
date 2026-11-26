@@ -5,267 +5,157 @@ sessionId: session-261125-112521-1kl1
 # Requirements
 
 ### Overview & Goals
-Create a static (non-animated) **pelvis-only** case next to the existing knee-bend pipeline, plus an animated pelvis-attached leg case for all gender/side combinations. Outputs go to `output/pelvis/`. Also write down how skin markers (ArUco / STag / CCTag) will be attached later, so they stick to the skin completely and their exact positions can be read back. **Markers are design-only for now; they will not be implemented.**
+Use the MiKneeSoTA Table 1 anatomical sites as **rough placement references** for markers on each SKEL pelvis-plus-one-leg mesh. Automatically project those sites to the mesh and attach the resulting patches to the deforming skin; Blender picking is not part of this workflow. Keep placement independent from marker family and appearance: a reusable style preset assigns each site any supported texture and visual shape (for example, square ArUco/STAG or circular/custom-alpha markers). The paper supplies anatomical descriptions, not mesh coordinates, so the sites remain clearly labelled approximations.
 
 ### Scope
 **In scope**
-- Pelvis export: SKEL reference pose (all 46 pose params = 0, betas = 0) → `output/pelvis/pelvis_<gender>.npz`.
-- Region = SKEL bone `0` (`pelvis`) only, for both the bone mesh and the skin mesh.
-- Automatic validation of the `.npz`.
-- A static Blender scene `output/pelvis/pelvis_<gender>.blend` with `Skin` and `Bones` objects, plus a camera and lights.
-- A one-command runner for `male`, `female` or `all`, with `--force` overwrite protection.
-- Animated pelvis-plus-one-leg exports and Blender scenes for male/female × right/left, using the existing 0–90° knee-bend trajectory.
-- A separate `run_pelvis_leg.py` runner so `run_pelvis.py` keeps its existing static-only behavior.
-- README section.
-- Marker attachment design (see the *Marker Design* tab).
+- Automatically place the 17 MiKneeSoTA site proxies (four bilateral pelvis sites plus 13 sites for the selected leg) on each male/female, left/right pelvis-leg export; do not require manual Blender picking.
+- Treat the paper sites as rough anatomical placement references, not as marker-family restrictions. Assign different marker families, shapes, textures, sizes, and rotations to individual sites through a separate reusable style preset.
+- Support square, circular, and texture-alpha silhouettes on the existing skin-conforming marker patches; accept supplied pattern images such as ArUco or STAG textures.
+- Preserve source-bound barycentric attachments, per-pose marker geometry, and the existing Blender preview/render and ground-truth workflow.
+- Document the approximation limits, style configuration, and render command; add validation and automated tests.
 
 **Out of scope**
-- Pelvis or leg motions beyond the existing single-knee 0–90° flexion trajectory.
-- Implementing markers, generating marker images, or the experiment sweeps over marker size, position and number.
-- Any change in behaviour of the knee-bend pipeline.
+- Claiming the proxy sites are exact clinical coordinates: the paper gives anatomical descriptions and schematic views, not coordinates on these SKEL meshes.
+- Adding marker sites beyond the MiKneeSoTA-derived 17 per one-leg-plus-pelvis model, or asking the user to click placement points in Blender for this workflow.
+- Implementing marker detectors, detector evaluation, marker-family image-generation libraries, or camera-based localization; users supply the marker pattern images.
+- Changes to SKEL poses, mesh selection, or existing `run_pelvis.py`, `run_pelvis_leg.py`, and `run_knee_bend.py` behavior.
 
 ### User Stories
-- As a researcher, I want a pelvis-only skin + bone model so I can study skin-marker tracking of the pelvis, as I already do for the femur and tibia.
-- As a researcher, I want the pelvis ground truth in the same `.npz` layout as the knee export, so later marker tooling works on both.
-- As a researcher, I want a documented marker attachment design, so I can plan experiments over marker size, position and number before anything is built.
+- As a researcher, I want the paper's anatomical sites mapped approximately onto the SKEL meshes automatically, so I can use them as repeatable starting positions without manually picking each point.
+- As a researcher, I want to choose different marker families, textures, and visible shapes for those same sites, so the site definitions do not limit which markers I can test.
+- As a researcher, I want the markers to conform to animated skin and appear in Blender renders, so I can inspect and render videos of the configured experiments.
 
 ### Functional Requirements
-- `python run_pelvis.py male` (or `female` / `all`) runs three steps: export → check → Blender build. It stops at the first failure.
-- It refuses to overwrite an existing `.blend` unless `--force` is given (same as `run_knee_bend.py`).
-- The `.npz` contains only vertices whose dominant skinning bone is `0`, and only faces whose 3 vertices all qualify. The vertex order is fixed and deterministic.
-- The `.blend` opens with a semi-transparent `Skin` (same material as the knee scene) and an opaque `Bones` pelvis. It uses the same RealSense D456 camera intrinsics, viewing the pelvis **from the front**.
-- Animated pelvis-leg exports contain only vertices dominated by pelvis bone `0` or bones of the selected leg, with faces kept only when all three vertices qualify. They use the same 46 poses and knee angles as the matching knee-bend export.
-- Animated pelvis-leg scenes use the same absolute shape-key motion and frame mapping as the knee scene, with pelvis and selected leg in both `Skin` and `Bones`.
-- Existing `run_knee_bend.py` outputs are unchanged.
+- Generate the same 17 MiKneeSoTA-derived site codes for each matching pelvis-leg export, with pelvis sites constrained to pelvis-labelled skin and limb sites constrained to the selected leg; do not use Blender picking to define positions.
+- Read a separate style preset keyed by paper site code, with reusable defaults and per-site overrides for marker family, shape, texture path, size, and rotation. Marker family may be ArUco, STAG, or another user-supplied pattern; it does not change the site anchor.
+- Render square and circular silhouettes through a UV-space alpha mask, and support custom silhouettes through texture alpha. The textured visible surface remains a deforming grid attached to the skin.
+- Validate style entries, IDs, dimensions, texture paths, source fingerprint, region boundaries, and patch fit before saving generated geometry.
+- Recompute each surface-grid vertex from stored face/barycentric anchors for every pose; retain the current per-frame center, bounding corners, normal, and ground-truth outputs.
+- Build the configured marker patches in the existing animated `scripts/blender_import_pelvis_leg.py` scene and render the animation through `marker_tracking/blender/export_take.py`; preserve the no-marker path.
 
 # Technical Design
 
 ### Current Implementation
-- `scripts/knee_bend_export.py`:
-  - `dominant_bone(weights)` does an argmax over `skel.skin_weights` / `skel.skel_weights_rigid`.
-  - `submesh(faces, vert_bone, bones)` keeps faces whose vertices all lie in the chosen bones, and renumbers them.
-  - It writes the `.npz` (`skin_verts`, `skin_faces`, `skin_vert_ids`, `skin_label`, `bone_*`, `joints`, `bone_transforms`, …).
-  - All the code runs at module level, so the helpers can't be imported.
-- `scripts/check_export.py` is specific to the knee (it uses `knee_deg` and femur/tibia checks).
-- `scripts/blender_import_knee.py`:
-  - Contains `to_blender`, `make_material`, `make_animated_mesh`, `add_camera_and_lights` (side view along ±x), and `check_frames`.
-  - It ends with a bare `main()` call.
-- `run_knee_bend.py` contains `find_blender()` and `run(step, cmd)`, guarded by `__main__`, so both can be imported.
-- SKEL bone indices (`skel/kin_skel.py`): `0 pelvis`, `1/6 femur`, `11 lumbar_body`.
+- `scripts/pelvis_leg_export.py` produces the 46-pose pelvis-plus-selected-leg NPZ consumed by marker generation and Blender.
+- `marker_tracking/paper_layout.py` defines the paper's site codes and maps them to approximate joint/proportion targets, then projects them to pelvis- or leg-labelled skin. `scripts/generate_mikneesota_markers.py` creates the 17-site layouts and geometry for all four gender/side exports, currently using one generated disc texture for all sites.
+- `marker_tracking/layout.py` already stores per-marker texture paths, sizes, rotation, site metadata, and source fingerprint. `marker_tracking/anchors.py` fits a square surface grid and evaluates barycentric anchors for every pose.
+- `scripts/blender_import_pelvis_leg.py` already loads each marker's texture, creates UV-mapped animated grid meshes with matching skin shape keys, and checks their evaluated vertices. `marker_tracking/blender/export_take.py` renders the animated scene and writes camera-space marker ground truth.
 
 ### Key Decisions
-- **Region = pelvis bone 0 only** (user choice). This is the direct counterpart of `LEG_BONES`.
-- **Outputs = `.npz` + static `.blend`** in `output/pelvis/` (user choice). The `.npz` keeps the knee schema, with pose axis `P = 1`, so later animation and marker code can treat both cases the same way.
-- **Share helpers instead of copying them.**
-  - Move `dominant_bone` and `submesh` into `scripts/skel_mesh.py`.
-  - Move `to_blender`, `make_material` and `add_camera_and_lights` into `scripts/blender_common.py`.
-  - The knee scripts import them, with identical behaviour.
-- **Front view for the pelvis.** `add_camera_and_lights` gets a `view='side'|'front'` keyword. The default `'side'` keeps the knee scene exactly as it is. `'front'` puts the camera at −y in Blender, the subject's front (SKEL +z → Blender −y).
-- **Static mesh, no shape keys.** With a single pose, the mesh is built straight from `verts[0]`.
+- **Paper sites define positions, not marker types.** Preserve the MiKneeSoTA site codes as automatic approximate anchor references; let the separate style preset assign ArUco, STAG, or any other supplied marker texture and shape to each code.
+- **Reusable style preset.** Store defaults and per-site style overrides in a separate JSON file, apply it consistently to all four gender/side models, and copy resolved style metadata into each source-bound layout and geometry NPZ for reproducibility.
+- **Keep barycentric surface attachment.** Continue using `skin_faces` face indices and barycentric samples on the exported submesh, tied to the source mesh fingerprint; do not read marker coordinates back from Blender.
+- **Use texture alpha for silhouettes.** Keep the existing conforming subdivided grid and use UV-space masking for square/circular shapes; custom alpha textures can supply other silhouettes without changing anchor placement.
+- **Respect focused modules.** Keep style validation/configuration in a dedicated `marker_tracking` module and rendering changes in `scripts/blender_import_pelvis_leg.py`; do not consolidate unrelated functionality into a common file.
 
 ### Proposed Changes
-- **`scripts/pelvis_export.py`** (`--gender male|female`):
-  - Loads SKEL with `load_skel`.
-  - Evaluates one zero pose under `torch.no_grad()`.
-  - Selects bone `[0]` with the shared helpers.
-  - Builds `bone_transforms` the same way as the knee export.
-  - Saves the arrays (see the contract below).
-- **`scripts/check_pelvis_export.py`** prints PASS/FAIL in the same style as `check_export.py`. It checks:
-  - all arrays are present and their shapes agree (`P == 1`);
-  - there are no NaN or inf values, and all coordinates are < 2 m from the origin;
-  - faces and vertex ids are valid and the ids are unique and sorted;
-  - every `skin_label` and `bone_label` is 0, and all poses are 0;
-  - the pelvis joint `joints[0, 0]` lies inside the pelvis bone's bounding box;
-  - the centre of the bone bounding box lies inside the skin bounding box;
-  - it also reports the number of connected skin components (as information).
-  - `--recompute` re-runs SKEL and compares the vertices.
-- **`scripts/blender_import_pelvis.py`** (run inside Blender, arguments after `--`: `npz blend [--force]`):
-  - Builds a static `Skin` (alpha 0.3) and `Bones` (pelvis material).
-  - Adds the camera and lights with `view='front'`.
-  - Checks that the Blender vertex coordinates equal `to_blender(npz)` to within < 1e-5 m, then saves.
-  - Sets the scene properties `gender` and `region='pelvis'`.
-- **`run_pelvis.py`** (repo root): `gender ∈ {male, female, all}` plus `--force`. It reuses `find_blender` and `run` from `run_knee_bend.py` and writes to `output/pelvis/`.
-- **Knee scripts:**
-  - `knee_bend_export.py` imports its helpers from `skel_mesh.py`.
-  - `blender_import_knee.py` imports its helpers from `blender_common.py`, and its call becomes `if __name__ == '__main__': main()` (Blender's `--python` sets `__main__`).
-  - Neither script's behaviour changes.
+- **`marker_tracking/styles.py`** validates a separate style-preset JSON with defaults and per-paper-code overrides; resolve texture paths relative to the preset and validate supported silhouettes and finite sizes/rotations.
+- **`marker_tracking/presets/mikneesota_marker_styles.json`** provides an editable example preset, with style entries independent of the site-position rules. Users can point to their own images, including square ArUco/STAG patterns.
+- **`marker_tracking/paper_layout.py`** keeps the paper code-to-approximate-site mapping and combines each unchanged anchor with the resolved style data.
+- **`marker_tracking/layout.py`** preserves and validates the resolved `family`, `shape`, `texture`, size, and rotation in source-bound layout entries; the paper code continues to identify the approximate site.
+- **`scripts/generate_mikneesota_markers.py`** accepts a style-preset path, applies it while generating all four layouts and per-pose geometry, and stores the resolved style metadata and image paths in the outputs.
+- **`marker_tracking/anchors.py`** retains barycentric surface fitting and exports the new per-marker style fields alongside the existing grid, center, corners, and normal data.
+- **`scripts/blender_import_pelvis_leg.py`** displays each configured texture with square/circular UV alpha masks or the image's custom alpha, records family/shape metadata on marker objects, and retains animated skin-conforming grids and the no-marker path.
+- **`marker_tracking/blender/export_take.py`** remains the render/export entry point; verify that configured styles appear in the rendered take while geometric ground truth remains tied to the skin anchors.
 
 ### Data Models / Contracts
-```python
+The style preset is independent of the site-position table and resolves a style for each MiKneeSoTA code. Texture paths are relative to the preset unless absolute; each generated source-bound layout records resolved values:
 
-# scripts/skel_mesh.py
-
-def dominant_bone(weights) -> np.ndarray            # (V,) argmax bone per vertex
-def submesh(faces, vert_bone, bones) -> (vert_ids, new_faces)
-def bone_transforms(joints, joints_ori) -> np.ndarray  # (P, 24, 4, 4)
-
-# scripts/blender_common.py
-
-def to_blender(v): ...                               # SKEL y-up -> Blender z-up
-def make_material(name, color, alpha=1.0): ...
-def add_camera_and_lights(scene, points, mirror=1, view='side'): ...
+```json
+{
+  "schema_version": 1,
+  "defaults": {"family": "aruco", "shape": "square", "texture": "textures/aruco.png", "size_m": 0.04},
+  "sites": {
+    "LASI": {"family": "stag", "shape": "square", "texture": "textures/stag.png"},
+    "RPSI": {"family": "custom", "shape": "circle", "texture": "textures/round.png", "size_m": 0.014}
+  }
+}
 ```
-`output/pelvis/pelvis_<gender>.npz` uses the knee schema minus `knee_deg`, plus `region`:
 
-| Array | Shape | Note |
-|---|---|---|
-| `poses`, `pose_param_names` | (1, 46), (46,) | all zeros |
-| `skin_verts`, `skin_faces`, `skin_vert_ids`, `skin_label` | (1, Vs, 3), (Fs, 3), (Vs,), (Vs,) | label == 0 |
-| `bone_verts`, `bone_faces`, `bone_vert_ids`, `bone_label` | (1, Vb, 3), (Fb, 3), (Vb,), (Vb,) | label == 0 |
-| `joints`, `joint_names`, `bone_transforms` | (1, 24, 3), (24,), (1, 24, 4, 4) | pelvis = index 0 |
-| `gender`, `betas`, `trans`, `region`, `units`, `coordinate_system` | | `region='pelvis'` |
+Each generated marker layout entry contains the stable paper `id`/`paper_code`, `site_region`, `family`, `shape` (`square`, `circle`, or `texture_alpha`), `texture`, `size_m`, `rotation_deg`, and its source-submesh face+barycentric center anchor. The geometry NPZ carries the same style fields plus the existing per-pose `surface_face (M,K,K)`, `surface_bary (M,K,K,3)`, `grid_verts (P,M,K,K,3)`, `centre (P,M,3)`, `corners (P,M,4,3)`, and `normal (P,M,3)` data. Position anchors remain unchanged by style selection.
 
 ### File Structure
-```
-run_pelvis.py                     (new)
-scripts/skel_mesh.py              (new, helpers moved from knee_bend_export.py)
-scripts/blender_common.py         (new, helpers moved from blender_import_knee.py)
-scripts/pelvis_export.py          (new)
-scripts/check_pelvis_export.py    (new)
-scripts/blender_import_pelvis.py  (new)
-scripts/knee_bend_export.py       (modified: imports helpers)
-scripts/blender_import_knee.py    (modified: imports helpers, __main__ guard)
-README.md                         (modified: Pelvis section)
-output/pelvis/                    (generated, git-ignored)
+```text
+marker_tracking/styles.py                              (new: style preset parsing and validation)
+marker_tracking/presets/mikneesota_marker_styles.json  (new: editable example style preset)
+marker_tracking/layout.py                              (modified: resolved marker family/shape fields)
+marker_tracking/anchors.py                             (modified: preserve style metadata in geometry)
+marker_tracking/paper_layout.py                        (modified: apply style data without changing site anchors)
+scripts/generate_mikneesota_markers.py                 (modified: accept reusable style preset)
+scripts/blender_import_pelvis_leg.py                   (modified: per-marker shapes/textures in animated scene)
+marker_tracking/tests/test_styles.py                   (new: preset validation and style resolution)
+marker_tracking/tests/test_paper_layout.py             (modified: positions remain stable across style choices)
+marker_tracking/tests/test_layout.py                   (modified: style fields survive validation)
+marker_tracking/README.md                              (modified: configure, preview, and render styles)
+output/pelvis/                                          (generated layouts, geometry, and renders; git-ignored)
 ```
 
 ### Architecture Diagram
 ```mermaid
 graph LR
-  R[run_pelvis.py] --> E[pelvis_export.py]
-  E --> SM[skel_mesh.py]
-  E --> N[pelvis_gender.npz]
-  R --> C[check_pelvis_export.py]
-  C --> N
-  R --> B[blender_import_pelvis.py]
-  B --> BC[blender_common.py]
-  B --> BL[pelvis_gender.blend]
-  K[knee scripts] --> SM
-  K --> BC
+  S[MiKneeSoTA site proxies] --> G[Marker geometry generator]
+  P[Style preset JSON] --> G
+  N[Pelvis-leg NPZ] --> G
+  G --> L[Resolved layout and geometry]
+  L --> B[Animated Blender scene]
+  B --> R[Rendered video and ground truth]
 ```
 
 ### Risks
-- **Ragged or patchy skin border.** Selecting by dominant bone can leave small islands where pelvis, femur and lumbar weights are close. The checker reports the component count. Anchoring markers far from the border avoids the issue (see Marker Design).
-- **Knee regression from the refactor.** Mitigation: compare the refactored selection with the ids already stored in `output/knee_bend/*.npz`, and rebuild one knee scene into a scratch path to confirm `check_frames` still passes.
-- **Imports inside Blender.** The pelvis importer must add `scripts/` to `sys.path` before importing `blender_common`.
+- **Proxy sites are approximate.** Keep the paper descriptions and mesh-projection distances in the generated metadata; do not claim subject-specific palpation accuracy.
+- **A marker patch crosses a region boundary or high curvature.** Retain current region, fit, and fold validation and reject styles whose configured footprint cannot fit at that site.
+- **Style image paths or alpha are invalid.** Validate files and shape settings before geometry generation; fail with the paper code and offending preset field.
+- **Markers float or z-fight in renders.** Keep the display-only normal offset and report ground-truth points on the actual attached skin.
+- **Marker-family scope expands.** Treat family as descriptive style metadata and texture as user-supplied input; do not add detector or family-image-generation dependencies.
 
-# Marker Design (deferred)
+# Marker Placement Design
 
-### Goal
-Markers must **stick completely to the skin**, so they deform with it like a tattoo, and their exact 3D centre and corners must be known in every frame for ground truth. **Nothing here is implemented in this task.** Implementation waits until you define the experiment sweeps over size, position and number.
+### Placement Workflows
+For this workflow, automatically map the MiKneeSoTA paper's named anatomical sites to approximate targets on each gender/side pelvis-leg mesh. These targets are only rough references for placing different marker types; they are not exact coordinates supplied by the paper. Do not require manual Blender picking.
 
-### Chosen approach: barycentric anchors (user choice)
-1. **Layout config** (one JSON per experiment, e.g. `marker_layouts/<exp>.json`):
-```json
-{"region": "pelvis", "family": "aruco_4x4_50" | "stag_hd11" | "cctag3",
- "markers": [{"id": 0, "size_m": 0.03, "anchor": {"vert_id": 1234} | {"face": 87, "bary": [0.2,0.3,0.5]},
-              "rotation_deg": 0}]}
-```
-2. **Placement at rest pose:**
-   - Centre `p = Σ bᵢ vᵢ` on the anchor triangle.
-   - Normal `n` from the interpolated vertex normals.
-   - Tangent `t` = a reference axis (e.g. Blender up) projected onto the tangent plane, then rotated by `rotation_deg`.
-   - Build a k×k grid of the square marker in the (t, n×t) plane, and project each grid point onto the closest point of the skin.
-   - Store each grid point as `(face, bary)` on the full SKEL skin. Using `skin_vert_ids` maps submesh faces to the full mesh.
-3. **Per frame:** recompute every grid point from that frame's skin vertices, so the marker follows the skin deformation exactly. Ground truth per frame = centre, the 4 corners and the normal. These are exact; nothing needs to be read back from Blender.
-4. **Blender:** draw a marker mesh (the k×k grid) offset by ~0.1 mm along the normal to avoid z-fighting. UV-map it to the marker image and animate it with the same shape-key frames as `Skin`.
-5. **Output:** `markers_<exp>.npz` containing `marker_id`, `family`, `size_m`, `anchors (M, k*k, 2)`, `centre (P, M, 3)`, `corners (P, M, 4, 3)`, `normal (P, M, 3)`. Later, `marker_tracking/blender/export_take.py` converts these into `ground_truth.csv`. `marker_id` is the same id used in `marker_tracking/table.py`.
+### Placement and Attachment
+1. `marker_tracking/paper_layout.py` calculates the 17 fixed site targets from the existing joint and pelvis geometry and projects each target to an allowed pelvis or selected-leg skin triangle.
+2. A separate style preset maps each paper code to a marker family, texture, visual shape, size, and rotation. This changes appearance and footprint only; it does not choose or move the site center.
+3. `marker_tracking/anchors.py` creates a configurable grid around each center, stores samples as local face+barycentric anchors, and rejects patches that cross the declared region, fail fit tolerance, or fold.
+4. Re-evaluate those anchors from each pose's `skin_verts` so marker patches conform to the moving surface and expose per-pose centers, bounding corners, normals, and grid vertices without Blender readback.
+5. Load the configured images and shape masks in the animated Blender scene; use a small display-only normal offset while retaining ground truth on the skin surface.
 
-### Marker families
-- **ArUco:** images come from `cv2.aruco.generateImageMarker` (opencv-contrib). Detection is easy in `marker_tracking/detect.py`.
-- **STag:** use the pre-generated HD-library images from the `manfredstoiber/stag` repo. Detection via the `stag-python` bindings.
-- **CCTag:** circular rings from `alicevision/cctag`. Detection needs a C++ build, which is the main Windows risk. The centre is more robust under curvature, but there are no corners (store the centre and normal only).
-
-### Experiment sweeps (later)
-A generator writes one layout per combination of {size, number, placement strategy (landmark vertices, random with minimum spacing, grid)}. It rejects placements whose grid would cross the region border or fold over high-curvature areas.
+### Layout Provenance and Experiments
+- Keep source mesh fingerprints and paper site IDs so generated layouts cannot silently attach to a different gender, side, or topology.
+- Reuse one style preset across all four source meshes, with per-site overrides; generated source-bound layouts record resolved styles so later previews are reproducible.
+- The existing Blender surface picker remains available for other workflows but is not used to define these MiKneeSoTA-referenced sites.
 
 # Testing
 
 ### Validation Approach
-Use the project `.venv` and the installed Blender. The SKEL models are already present, as `output/knee_bend/` shows.
+Test style configuration and marker geometry with the existing Python test suite; use Blender integration checks to verify the configured marker objects follow the source skin and render correctly across the 46 poses.
 
 ### Key Scenarios
-- `python scripts/pelvis_export.py --gender male` writes `output/pelvis/pelvis_male.npz` with plausible counts: thousands of bone vertices and several hundred skin vertices.
-- `python scripts/check_pelvis_export.py output/pelvis/pelvis_male.npz --recompute`: all checks PASS.
-- `python run_pelvis.py all` builds `pelvis_male.blend` and `pelvis_female.blend`. Blender's vertex check passes, and reopening the file in headless Blender shows `Skin` and `Bones` with the expected vertex and face counts.
+- One reusable style preset resolves defaults and per-site overrides consistently for male/female and right/left models while preserving the same 17 paper site codes and anchors.
+- Square ArUco/STAG-style textures, circular masks, and custom-alpha textures survive preset → layout → geometry → Blender object round-trip with the right family/shape metadata.
+- Generated grid vertices remain attached to their corresponding skin positions for every pose; Blender's evaluated marker meshes match the generated geometry within the existing tolerance.
+- Rendered takes show the configured styles and preserve stable marker IDs and camera-space geometric ground truth.
 
-### Edge Cases
-- Running `run_pelvis.py male` a second time without `--force` exits with the "already exists" message, and with `--force` it overwrites.
-- A missing model file shows the existing `load_skel` error.
-- If no Blender is found, the run stops with the `find_blender` message.
-
-### Regression (knee pipeline)
-- The refactored `submesh`/`dominant_bone` reproduce `skin_vert_ids`, `skin_faces`, `bone_vert_ids` and `bone_faces` stored in the existing `output/knee_bend/knee_bend_anim_male_right.npz` exactly.
-- `blender_import_knee.py` run on the existing `.npz` into a scratch `.blend` passes `check_frames`, and the camera position is unchanged (`view='side'` default).
-- `check_export.py` still passes on the existing knee `.npz`.
+### Edge Cases and Regression
+- Reject missing texture images, malformed style fields, unsupported shapes, unknown paper codes, invalid dimensions, stale fingerprints, and region-crossing or folded patches with actionable errors.
+- Verify style changes do not change paper site anchors or the marker count for any of the four source exports.
+- Run the existing marker-tracking tests and confirm the Blender no-marker path and knee/pelvis-leg exports remain unchanged.
 
 # Delivery Steps
 
-### ✓ Step 1: Extract shared SKEL mesh helpers and add the pelvis export
-`scripts/pelvis_export.py` writes `output/pelvis/pelvis_<gender>.npz` with pelvis-only skin and bone; the knee export behaves exactly as before.
+### * Step 1: Add reusable per-site marker style presets to the MiKneeSoTA generator
+The four generated layouts keep the existing 17 approximate paper-site anchors and resolve an independently configurable family, shape, texture, and size for each site.
 
-- Create `scripts/skel_mesh.py` with `dominant_bone`, `submesh` and `bone_transforms`, moved from `knee_bend_export.py`.
-- Update `scripts/knee_bend_export.py` to import these helpers, with no change in behaviour.
-- Add `scripts/pelvis_export.py`:
-  - `--gender` argument;
-  - one zero pose (`P = 1`);
-  - bone set `[0]`;
-  - the knee `.npz` schema minus `knee_deg`, plus `region='pelvis'`.
-- Verify that the refactored selection reproduces the ids and faces stored in `output/knee_bend/knee_bend_anim_male_right.npz`.
-- Run the pelvis export for male and female and inspect the vertex and face counts.
+- Add focused style-preset parsing and validation in `marker_tracking/styles.py`, with an editable example in `marker_tracking/presets/mikneesota_marker_styles.json`.
+- Update `marker_tracking/paper_layout.py`, `marker_tracking/layout.py`, and `scripts/generate_mikneesota_markers.py` to apply style defaults and paper-code overrides without changing the existing site target calculations.
+- Persist resolved family/shape/texture metadata in each layout and marker geometry NPZ; retain source fingerprints and relative texture path resolution.
+- Add tests proving styles round-trip, invalid presets fail clearly, and changing styles leaves marker IDs, site codes, and barycentric centers unchanged across all four models.
 
-### ✓ Step 2: Add validation for the pelvis export
-`scripts/check_pelvis_export.py` checks a pelvis `.npz` and exits non-zero on any failure.
+###   Step 2: Render configured marker silhouettes and textures on the animated skin
+The Blender scene displays square, circular, and custom-alpha markers that follow the skin over the full animation and can be rendered as a video.
 
-- Use PASS/FAIL output in the same style as `check_export.py`.
-- Check that all arrays are present and that shapes agree with `P == 1`.
-- Check for NaN/inf values and that coordinates are plausible.
-- Check face validity, and that vertex ids are unique and sorted.
-- Check that every label is 0 and every pose is 0.
-- Check that the pelvis joint lies inside the bone's bounding box, and that the bone sits inside the skin's bounding box.
-- Report the number of connected skin components for information.
-- Add an optional `--recompute` that compares against a fresh SKEL evaluation.
-- Run the checker on both gender exports, with `--recompute`.
-
-### ✓ Step 3: Build the static pelvis Blender scene and runner
-`python run_pelvis.py male|female|all [--force]` produces `output/pelvis/pelvis_<gender>.blend`; the knee scene is unchanged.
-
-- Create `scripts/blender_common.py` with `to_blender`, `make_material` and `add_camera_and_lights`.
-  - `add_camera_and_lights` gains a `view='side'|'front'` keyword; `'side'` keeps the current knee behaviour.
-- Update `scripts/blender_import_knee.py` to import these helpers and to call `main()` under an `if __name__ == '__main__'` guard.
-- Add `scripts/blender_import_pelvis.py`:
-  - static `Skin` and `Bones` meshes, no shape keys;
-  - front camera and lights;
-  - a vertex check against the `.npz`;
-  - scene properties `gender` and `region`;
-  - `--force` support.
-- Add `run_pelvis.py`, which reuses `find_blender` and `run` from `run_knee_bend.py` and runs export → check → Blender into `output/pelvis/`.
-- Verify:
-  - `run_pelvis.py all` succeeds;
-  - overwrite protection works;
-  - a knee scene rebuilt into a scratch path still passes `check_frames`.
-- Add a "Pelvis (static)" section to `README.md` with the commands, the outputs, and a pointer to the deferred marker design.
-
-### ✓ Step 4: Revise the plan for animated pelvis-plus-leg cases
-Keep the completed static pelvis-only output, and extend the deliverable with a pelvis-attached knee-bend case for every gender/side combination. Each animated case must use the same leg selection and pose trajectory as the corresponding knee export, with pelvis included in its skin and bone meshes.
-
-- Outputs: `output/pelvis/pelvis_leg_anim_<gender>_<side>.npz` and `output/pelvis/pelvis_leg_<gender>_<side>.blend`.
-- `python run_pelvis_leg.py all` builds all four gender/side cases; one gender may be selected with an optional side (default `right`), and `--force` controls overwrite.
-- Keep `run_pelvis.py` and its static pelvis outputs unchanged. Share the existing knee export/animation implementation where practical, without moving domain-specific behavior into a catch-all common module.
-- The exported region is pelvis bone `0` plus the selected leg bones (`1–5` right or `6–10` left); animation remains the standard 46 poses from 0° to 90° for that side's knee only.
-- Add explicit implementation and verification steps for the four animated cases, exact mesh/pose validation, and knee regression coverage.
-
-### ✓ Step 5: Export and validate animated pelvis-plus-leg cases
-Add a pelvis-leg exporter and validator that produce the same pose schema and motion as the corresponding knee export, while retaining pelvis and the selected leg.
-
-- Reuse or narrowly refactor the knee export path so normal knee outputs remain byte/schema compatible and the pelvis-leg cases use identical poses, weights, and deterministic submesh selection.
-- Include `region`, `gender`, and `side` metadata; verify dominant labels are restricted to pelvis and the chosen leg.
-- Validate all four cases, including pose columns, faces/IDs, pelvis and leg presence, and optional fresh-SKEL recomputation.
-
-### ✓ Step 6: Build animated pelvis-leg scenes and runner
-Create animated Blender scenes for the four pelvis-attached leg cases and document the new workflow.
-
-- Add `scripts/blender_import_pelvis_leg.py` using the knee importer's existing shape-key/frame behavior; validate both skin and bone vertices against all exported poses before saving.
-- Add `run_pelvis_leg.py` with export → check → Blender steps, all four cases via `all`, and `--force` overwrite protection.
-- Preserve existing `run_pelvis.py` static behavior and all knee outputs; add the animated workflow and file naming to `README.md`.
-- Verify four outputs, animation frame checks, overwrite handling, and knee regression checks.
+- Update `scripts/blender_import_pelvis_leg.py` to apply per-marker UV-space shape masks and supplied textures, retain family/shape metadata on Blender objects, and preserve the no-marker scene path.
+- Keep marker grids on the existing shape-key timeline and retain the small display offset; do not change skin anchors or ground-truth coordinates.
+- Verify generated marker meshes against the NPZ at each pose, render a take through `marker_tracking/blender/export_take.py`, and check that output images visibly show the selected styles and ground truth retains stable IDs.
+- Document the style preset, image-path rules, four-model generation command, and Blender render workflow in `marker_tracking/README.md`; run layout, anchor, paper-layout, and regression tests.
